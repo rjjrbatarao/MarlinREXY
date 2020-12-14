@@ -1835,12 +1835,22 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
     if (dc < 0) SBI(dm, Z_AXIS);
     if (da + db < 0) SBI(dm, A_AXIS);           // Motor A direction
     if (db < 0) SBI(dm, B_AXIS);                // Motor B direction
+  #elif ENABLED(HYBRID_E)
+    if (da < 0) SBI(dm, X_HEAD);                // Save the real Extruder (head) direction in X Axis
+    if (db < 0) SBI(dm, Y_HEAD);                // ...and Y
+    if (dc < 0) SBI(dm, Z_AXIS);
+    if (da + db < 0) SBI(dm, A_AXIS);           // Motor A direction
+    if (CORESIGN(da - db) < 0) SBI(dm, B_AXIS); // Motor B direction	
+	if (de + db < 0) SBI(dm, E_AXIS);			// MOTOR E direction
   #else
     if (da < 0) SBI(dm, X_AXIS);
     if (db < 0) SBI(dm, Y_AXIS);
     if (dc < 0) SBI(dm, Z_AXIS);
   #endif
+  
+  #ifndef HYBRID_E
   if (de < 0) SBI(dm, E_AXIS);
+  #endif
 
   #if EXTRUDERS
     const float esteps_float = de * e_factor[extruder];
@@ -1872,6 +1882,8 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
     block->steps.set(ABS(da), ABS(db + dc), ABS(db - dc));
   #elif ENABLED(MARKFORGED_XY)
     block->steps.set(ABS(da + db), ABS(db), ABS(dc));
+  #elif ENABLED(HYBRID_E)
+    block->steps.set(ABS(de + db), ABS(db), ABS(dc));
   #elif IS_SCARA
     block->steps.set(ABS(da), ABS(db), ABS(dc));
   #else
@@ -1888,7 +1900,7 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
    * Having the real displacement of the head, we can calculate the total movement length and apply the desired speed.
    */
   struct DistanceMM : abce_float_t {
-    #if EITHER(IS_CORE, MARKFORGED_XY)
+    #if ANY(IS_CORE, HYBRID_E, MARKFORGED_XY)
       xyz_pos_t head;
     #endif
   } steps_dist_mm;
@@ -1918,6 +1930,13 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
     steps_dist_mm.z      = dc * steps_to_mm[Z_AXIS];
     steps_dist_mm.a      = (da - db) * steps_to_mm[A_AXIS];
     steps_dist_mm.b      = db * steps_to_mm[B_AXIS];
+  #elif ENABLED(HYBRID_E)
+    steps_dist_mm.head.x = da * steps_to_mm[A_AXIS];
+    steps_dist_mm.head.y = db * steps_to_mm[B_AXIS];
+    steps_dist_mm.z      = dc * steps_to_mm[Z_AXIS];
+    steps_dist_mm.a      = (da + db) * steps_to_mm[A_AXIS];
+    steps_dist_mm.b      = CORESIGN(da - db) * steps_to_mm[B_AXIS];
+	steps_dist_mm.e      = (de - db) * steps_to_mm[E_AXIS];
   #else
     steps_dist_mm.a = da * steps_to_mm[A_AXIS];
     steps_dist_mm.b = db * steps_to_mm[B_AXIS];
@@ -1927,7 +1946,9 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   #if EXTRUDERS
     steps_dist_mm.e = esteps_float * steps_to_mm[E_AXIS_N(extruder)];
   #else
-    steps_dist_mm.e = 0.0f;
+	#ifndef HYBRID_E
+		steps_dist_mm.e = 0.0f;
+	#endif
   #endif
 
   TERN_(LCD_SHOW_E_TOTAL, e_move_accumulator += steps_dist_mm.e);
@@ -1944,8 +1965,8 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
       block->millimeters = millimeters;
     else
       block->millimeters = SQRT(
-        #if EITHER(CORE_IS_XY, MARKFORGED_XY)
-          sq(steps_dist_mm.head.x) + sq(steps_dist_mm.head.y) + sq(steps_dist_mm.z)
+        #if ANY(CORE_IS_XY, HYBRID_E, MARKFORGED_XY)
+          sq(steps_dist_mm.head.x) + sq(steps_dist_mm.head.y) + sq(steps_dist_mm.z) + sq(steps_dist_mm.e)
         #elif CORE_IS_XZ
           sq(steps_dist_mm.head.x) + sq(steps_dist_mm.y) + sq(steps_dist_mm.head.z)
         #elif CORE_IS_YZ
@@ -2001,10 +2022,11 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   #endif
 
   // Enable active axes
-  #if EITHER(CORE_IS_XY, MARKFORGED_XY)
-    if (block->steps.a || block->steps.b) {
+  #if ANY(CORE_IS_XY, HYBRID_E, MARKFORGED_XY)
+    if (block->steps.a || block->steps.b || block->steps.e) {
       ENABLE_AXIS_X();
       ENABLE_AXIS_Y();
+	  //ENABLE_AXIS_E();
     }
     #if DISABLED(Z_LATE_ENABLE)
       if (block->steps.z) ENABLE_AXIS_Z();
@@ -2363,7 +2385,7 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
      * => normalize the complete junction vector.
      * Elsewise, when needed JD will factor-in the E component
      */
-    if (EITHER(IS_CORE, MARKFORGED_XY) || esteps > 0)
+    if (ANY(IS_CORE, HYBRID_E, MARKFORGED_XY) || esteps > 0)
       normalize_junction_vector(unit_vec);  // Normalize with XYZE components
     else
       unit_vec *= inverse_millimeters;      // Use pre-calculated (1 / SQRT(x^2 + y^2 + z^2))

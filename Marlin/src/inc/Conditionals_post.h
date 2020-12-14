@@ -154,11 +154,17 @@
   #define CORE_AXIS_1 A_AXIS
   #define CORE_AXIS_2 B_AXIS
   #define NORMAL_AXIS Z_AXIS
+#elif ENABLED(HYBRID_E)
+  // Hybrid Extruder kinematics
+  #define CORE_AXIS_1 A_AXIS
+  #define CORE_AXIS_2 B_AXIS
+  #define NORMAL_AXIS Z_AXIS
+  #define CORESIGN(n) (ANY(COREYX, COREZX, COREZY) ? (-(n)) : (n))  
 #endif
 
 // Calibration codes only for non-core axes
 #if EITHER(BACKLASH_GCODE, CALIBRATION_GCODE)
-  #if EITHER(IS_CORE, MARKFORGED_XY)
+  #if EITHER(IS_CORE, HYBRID_E, MARKFORGED_XY)
     #define CAN_CALIBRATE(A,B) (_AXIS(A) == B)
   #else
     #define CAN_CALIBRATE(A,B) 1

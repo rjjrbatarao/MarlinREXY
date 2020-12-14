@@ -2027,6 +2027,7 @@ uint32_t Stepper::block_phase_isr() {
         #define D_(N) TEST(current_block->direction_bits, CORE_AXIS_##N)
       #endif
 
+	  
       #if CORE_IS_XY || CORE_IS_XZ
         /**
          * Head direction in -X axis for CoreXY and CoreXZ bots.
@@ -2043,6 +2044,23 @@ uint32_t Stepper::block_phase_isr() {
         #define X_MOVE_TEST ( S_(1) != S_(2) || (S_(1) > 0 && X_CMP(D_(1),D_(2))) )
       #elif ENABLED(MARKFORGED_XY)
         #define X_MOVE_TEST (current_block->steps.a != current_block->steps.b)
+      #elif ENABLED(HYBRID_E)
+        /**
+         * Head direction in -X axis for CoreXY and CoreXZ bots.
+         *
+         * If steps differ, both axes are moving.
+         * If DeltaA == -DeltaB, the movement is only in the 2nd axis (Y or Z, handled below)
+         * If DeltaA ==  DeltaB, the movement is only in the 1st axis (X)
+         */
+        #define S_(N) current_block->steps[CORE_AXIS_##N]
+        #define D_(N) TEST(current_block->direction_bits, CORE_AXIS_##N)		 
+        #if EITHER(COREXY, COREXZ)
+          #define X_CMP(A,B) ((A)==(B))
+        #else
+          #define X_CMP(A,B) ((A)!=(B))
+        #endif
+        #define X_MOVE_TEST ( S_(1) != S_(2) || (S_(1) > 0 && X_CMP(D_(1),D_(2))) )	  
+        #define E_MOVE_TEST (current_block->steps.e != current_block->steps.b)		
       #else
         #define X_MOVE_TEST !!current_block->steps.a
       #endif
@@ -2087,6 +2105,7 @@ uint32_t Stepper::block_phase_isr() {
       if (X_MOVE_TEST) SBI(axis_bits, A_AXIS);
       if (Y_MOVE_TEST) SBI(axis_bits, B_AXIS);
       if (Z_MOVE_TEST) SBI(axis_bits, C_AXIS);
+	  if (E_MOVE_TEST) SBI(axis_bits, E_AXIS);
       //if (!!current_block->steps.e) SBI(axis_bits, E_AXIS);
       //if (!!current_block->steps.a) SBI(axis_bits, X_HEAD);
       //if (!!current_block->steps.b) SBI(axis_bits, Y_HEAD);
@@ -2619,11 +2638,16 @@ void Stepper::_set_position(const int32_t &a, const int32_t &b, const int32_t &c
     count_position.set(a, b + c, CORESIGN(b - c));
   #elif ENABLED(MARKFORGED_XY)
     count_position.set(a - b, b, c);
+  #elif ENABLED(HYBRID_E)
+    count_position.set(a + b, CORESIGN(a - b), c);
+	count_position.set(e - b, b, c);
   #else
     // default non-h-bot planning
     count_position.set(a, b, c);
   #endif
+  #ifndef HYBRID_E
   count_position.e = e;
+  #endif
 }
 
 /**
@@ -2689,6 +2713,11 @@ void Stepper::endstop_triggered(const AxisEnum axis) {
       axis == CORE_AXIS_1
         ? count_position[CORE_AXIS_1] - count_position[CORE_AXIS_2]
         : count_position[CORE_AXIS_2]
+    #elif ENABLED(HYBRID_E)
+      (axis == CORE_AXIS_2
+        ? CORESIGN(count_position[CORE_AXIS_1] - count_position[CORE_AXIS_2])
+        : count_position[CORE_AXIS_1] + count_position[CORE_AXIS_2]
+      ) * double(0.5)		
     #else // !IS_CORE
       count_position[axis]
     #endif
@@ -2718,7 +2747,7 @@ int32_t Stepper::triggered_position(const AxisEnum axis) {
 }
 
 void Stepper::report_a_position(const xyz_long_t &pos) {
-  #if ANY(CORE_IS_XY, CORE_IS_XZ, MARKFORGED_XY, DELTA, IS_SCARA)
+  #if ANY(CORE_IS_XY, CORE_IS_XZ, HYBRID_E, MARKFORGED_XY, DELTA, IS_SCARA)
     SERIAL_ECHOPAIR(STR_COUNT_A, pos.x, " B:", pos.y);
   #else
     SERIAL_ECHOPAIR_P(PSTR(STR_COUNT_X), pos.x, SP_Y_LBL, pos.y);
