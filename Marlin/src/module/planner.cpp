@@ -1648,7 +1648,33 @@ float Planner::get_axis_position_mm(const AxisEnum axis) {
     }
     else
       axis_steps = stepper.position(axis);
+  
+  #elif ENABLED(HYBRID_E)
 
+    // Requesting one of the "core" axes?
+    if (axis == CORE_AXIS_1 || axis == CORE_AXIS_2) {
+
+      // Protect the access to the position.
+      const bool was_enabled = stepper.suspend();
+
+      const int32_t p1 = stepper.position(CORE_AXIS_1),
+                    p2 = stepper.position(CORE_AXIS_2);
+
+      if (was_enabled) stepper.wake_up();
+
+      // ((a1+a2)+(a1-a2))/2 -> (a1+a2+a1-a2)/2 -> (a1+a1)/2 -> a1
+      // ((a1+a2)-(a1-a2))/2 -> (a1+a2-a1+a2)/2 -> (a2+a2)/2 -> a2
+      axis_steps = (axis == CORE_AXIS_2 ? CORESIGN(p1 - p2) : p1 + p2) * 0.5f;
+    } 
+	else if (axis == E_AXIS){
+      const int32_t p1 = stepper.position(CORE_AXIS_1),
+                    p2 = stepper.position(CORE_AXIS_2),
+					e0 = stepper.position(E_AXIS);
+	  axis_steps = e0 + p1 + p2;
+	}
+    else
+      axis_steps = stepper.position(axis);
+  
   #else
 
     axis_steps = stepper.position(axis);
@@ -1841,7 +1867,6 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
     if (dc < 0) SBI(dm, Z_AXIS);
     if (da + db < 0) SBI(dm, A_AXIS);           // Motor A direction
     if (CORESIGN(da - db) < 0) SBI(dm, B_AXIS); // Motor B direction	
-	if ((de + da + db) < 0) SBI(dm, E_AXIS);			// MOTOR E direction
   #else
     if (da < 0) SBI(dm, X_AXIS);
     if (db < 0) SBI(dm, Y_AXIS);
@@ -1849,7 +1874,9 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   #endif
   
   #ifndef HYBRID_E
-  if (de < 0) SBI(dm, E_AXIS);
+	if (de < 0) SBI(dm, E_AXIS);
+  #else
+	if ((de + da + db) < 0) SBI(dm, E_AXIS);			// MOTOR E direction
   #endif
 
   #if EXTRUDERS
@@ -1883,7 +1910,7 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   #elif ENABLED(MARKFORGED_XY)
     block->steps.set(ABS(da + db), ABS(db), ABS(dc));
   #elif ENABLED(HYBRID_E)
-    block->steps.set(ABS((de + da + db)), ABS(db), ABS(dc));
+    block->steps.set(ABS(da + db), ABS(da - db), ABS(dc));
   #elif IS_SCARA
     block->steps.set(ABS(da), ABS(db), ABS(dc));
   #else
@@ -1936,7 +1963,6 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
     steps_dist_mm.z      = dc * steps_to_mm[Z_AXIS];
     steps_dist_mm.a      = (da + db) * steps_to_mm[A_AXIS];
     steps_dist_mm.b      = CORESIGN(da - db) * steps_to_mm[B_AXIS];
-	steps_dist_mm.e      = ((de + da) - db) * steps_to_mm[E_AXIS];
   #else
     steps_dist_mm.a = da * steps_to_mm[A_AXIS];
     steps_dist_mm.b = db * steps_to_mm[B_AXIS];
@@ -1948,6 +1974,8 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   #else
 	#ifndef HYBRID_E
 		steps_dist_mm.e = 0.0f;
+	#else
+		steps_dist_mm.e	= (de + da - db) * steps_to_mm[E_AXIS];			
 	#endif
   #endif
 
@@ -2026,7 +2054,7 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
     if (block->steps.a || block->steps.b || block->steps.e) {
       ENABLE_AXIS_X();
       ENABLE_AXIS_Y();
-	  //ENABLE_AXIS_E();
+	  ENABLE_AXIS_E0();
     }
     #if DISABLED(Z_LATE_ENABLE)
       if (block->steps.z) ENABLE_AXIS_Z();
