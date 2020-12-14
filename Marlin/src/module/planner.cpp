@@ -1841,7 +1841,7 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
     if (dc < 0) SBI(dm, Z_AXIS);
     if (da + db < 0) SBI(dm, A_AXIS);           // Motor A direction
     if (CORESIGN(da - db) < 0) SBI(dm, B_AXIS); // Motor B direction	
-	if (de + db < 0) SBI(dm, E_AXIS);			// MOTOR E direction
+	if ((de + da + db) < 0) SBI(dm, E_AXIS);			// MOTOR E direction
   #else
     if (da < 0) SBI(dm, X_AXIS);
     if (db < 0) SBI(dm, Y_AXIS);
@@ -1883,7 +1883,7 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
   #elif ENABLED(MARKFORGED_XY)
     block->steps.set(ABS(da + db), ABS(db), ABS(dc));
   #elif ENABLED(HYBRID_E)
-    block->steps.set(ABS(de + db), ABS(db), ABS(dc));
+    block->steps.set(ABS((de + da + db)), ABS(db), ABS(dc));
   #elif IS_SCARA
     block->steps.set(ABS(da), ABS(db), ABS(dc));
   #else
@@ -1936,7 +1936,7 @@ bool Planner::_populate_block(block_t * const block, bool split_move,
     steps_dist_mm.z      = dc * steps_to_mm[Z_AXIS];
     steps_dist_mm.a      = (da + db) * steps_to_mm[A_AXIS];
     steps_dist_mm.b      = CORESIGN(da - db) * steps_to_mm[B_AXIS];
-	steps_dist_mm.e      = (de - db) * steps_to_mm[E_AXIS];
+	steps_dist_mm.e      = ((de + da) - db) * steps_to_mm[E_AXIS];
   #else
     steps_dist_mm.a = da * steps_to_mm[A_AXIS];
     steps_dist_mm.b = db * steps_to_mm[B_AXIS];

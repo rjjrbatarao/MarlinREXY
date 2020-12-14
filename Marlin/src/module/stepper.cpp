@@ -2640,7 +2640,7 @@ void Stepper::_set_position(const int32_t &a, const int32_t &b, const int32_t &c
     count_position.set(a - b, b, c);
   #elif ENABLED(HYBRID_E)
     count_position.set(a + b, CORESIGN(a - b), c);
-	count_position.set(e - b, b, c);
+	count_position.e = (e + a) - b;
   #else
     // default non-h-bot planning
     count_position.set(a, b, c);
